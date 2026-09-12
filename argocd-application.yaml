@@ -1,0 +1,23 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ecocapture-os
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Asher-bot85/carbon_platform.git
+    targetRevision: main
+    path: .
+    directory:
+      include: "carbon-platform-k8s.yaml"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: ecocapture-os
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+

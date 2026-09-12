@@ -1,0 +1,6 @@
+alert tcp any any -> any any (msg:"OT-IDS SQL Injection Attempt Detected (UNION SELECT)"; content:"UNION SELECT"; nocase; sid:1000001; rev:1;)
+alert tcp any any -> any any (msg:"OT-IDS Directory Traversal Attempt (etc/passwd)"; content:"etc/passwd"; sid:1000002; rev:1;)
+alert tcp any any -> any any (msg:"OT-IDS Safety Interlock Bypass Command Detected"; content:"disable_safety_interlock"; sid:1000003; rev:1;)
+alert tcp any any -> any any (msg:"OT-IDS CO2 Override Injection Detected"; content:"co2_ppm=999999"; sid:1000004; rev:1;)
+alert tcp any any -> any any (msg:"OT-IDS Remote Command Injection Attempt (rm -rf)"; content:"rm -rf"; sid:1000005; rev:1;)
+alert tcp any any -> any any (msg:"OT-IDS SQL Injection - Credential Harvest Attempt"; content:"UNION SELECT username"; sid:1000006; rev:1;)

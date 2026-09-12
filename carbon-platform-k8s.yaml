@@ -1,0 +1,325 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ecocapture-os
+  labels:
+    app.kubernetes.io/part-of: ecocapture-os
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ecocapture-config
+  namespace: ecocapture-os
+data:
+  LOG_LEVEL: "INFO"
+  CO2_SAFE_UPPER_PPM: "2000"
+  CO2_SAFE_LOWER_PPM: "100"
+  PURDUE_ENFORCEMENT: "strict"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: suricata-rules
+  namespace: ecocapture-os
+data:
+  local.rules: |
+    alert tcp any any -> any any (msg:"OT-IDS SQL Injection Attempt Detected (UNION SELECT)"; content:"UNION SELECT"; nocase; sid:1000001; rev:1;)
+    alert tcp any any -> any any (msg:"OT-IDS Directory Traversal Attempt (etc/passwd)"; content:"etc/passwd"; sid:1000002; rev:1;)
+    alert tcp any any -> any any (msg:"OT-IDS Safety Interlock Bypass Command Detected"; content:"disable_safety_interlock"; sid:1000003; rev:1;)
+    alert tcp any any -> any any (msg:"OT-IDS CO2 Override Injection Detected"; content:"co2_ppm=999999"; sid:1000004; rev:1;)
+    alert tcp any any -> any any (msg:"OT-IDS Remote Command Injection Attempt (rm -rf)"; content:"rm -rf"; sid:1000005; rev:1;)
+    alert tcp any any -> any any (msg:"OT-IDS SQL Injection - Credential Harvest Attempt"; content:"UNION SELECT username"; sid:1000006; rev:1;)
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ecocapture-secrets
+  namespace: ecocapture-os
+type: Opaque
+stringData:
+  ECOCAPTURE_SECRET_KEY: "CHANGE_ME_IN_PRODUCTION_USE_VAULT_OR_KMS"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ecocapture-audit-logs-pvc
+  namespace: ecocapture-os
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ecocapture-os-dashboard
+  namespace: ecocapture-os
+  labels:
+    app: ecocapture-os
+    component: dashboard
+  annotations:
+    checkov.io/skip1: CKV_K8S_14=Floating tag used intentionally for this lab project
+    checkov.io/skip2: CKV_K8S_43=Digest pinning out of scope for this practical
+    checkov.io/skip3: CKV_K8S_22=Streamlit needs a writable filesystem at runtime
+    checkov.io/skip4: CKV_K8S_40=UID 1000 intentionally matches mounted volume ownership
+    checkov.io/skip5: CKV_K8S_35=App reads secrets via env vars; file-based secrets need an app code change
+spec:
+  replicas: 1     # chnage it 1 for GitOps 
+  selector:
+    matchLabels:
+      app: ecocapture-os
+      component: dashboard
+  template:
+    metadata:
+      labels:
+        app: ecocapture-os
+        component: dashboard
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: ecocapture-dashboard
+          image: ecocapture-os:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8501
+              name: http
+          envFrom:
+            - configMapRef:
+                name: ecocapture-config
+            - secretRef:
+                name: ecocapture-secrets
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            privileged: false
+            runAsNonRoot: true
+            runAsUser: 1000
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+          volumeMounts:
+            - name: audit-logs
+              mountPath: /app/logs
+          livenessProbe:
+            httpGet:
+              path: /_stcore/health
+              port: 8501
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /_stcore/health
+              port: 8501
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 5
+      volumes:
+        - name: audit-logs
+          persistentVolumeClaim:
+            claimName: ecocapture-audit-logs-pvc
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ecocapture-telemetry-publisher
+  namespace: ecocapture-os
+  labels:
+    app: ecocapture-os
+    component: telemetry-publisher
+  annotations:
+    checkov.io/skip1: CKV_K8S_14=Floating tag used intentionally for this lab project
+    checkov.io/skip2: CKV_K8S_43=Digest pinning out of scope for this practical
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ecocapture-os
+      component: telemetry-publisher
+  template:
+    metadata:
+      labels:
+        app: ecocapture-os
+        component: telemetry-publisher
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: telemetry-publisher
+          image: ecocapture-os:latest
+          imagePullPolicy: IfNotPresent
+          command: ["python", "iot/telemetry_publisher_loop.py"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            privileged: false
+            runAsNonRoot: true
+            runAsUser: 1000
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "128Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"
+          volumeMounts:
+            - name: audit-logs
+              mountPath: /app/logs
+      volumes:
+        - name: audit-logs
+          persistentVolumeClaim:
+            claimName: ecocapture-audit-logs-pvc
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ecocapture-attack-sim
+  namespace: ecocapture-os
+  annotations:
+    checkov.io/skip1: CKV_K8S_23=Suricata container requires root for packet capture (NET_ADMIN/NET_RAW)
+    checkov.io/skip2: CKV_K8S_14=Floating tag used intentionally for this lab project
+    checkov.io/skip3: CKV_K8S_43=Digest pinning out of scope for this practical
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 120
+  template:
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      containers:
+        - name: attacker
+          image: ecocapture-os:latest
+          imagePullPolicy: IfNotPresent
+          command: ["python", "attack_sim/attacker.py"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1000
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "128Mi"
+            limits:
+              cpu: "300m"
+              memory: "256Mi"
+          volumeMounts:
+            - name: audit-logs
+              mountPath: /app/logs
+            - name: suricata-logs
+              mountPath: /var/log/suricata
+        - name: suricata
+          image: jasonish/suricata:latest
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              suricata -c /etc/suricata/suricata.yaml --pcap=lo -S /etc/suricata/rules/local.rules -l /var/log/suricata &
+              SURICATA_PID=$!
+              echo "Suricata started with PID $SURICATA_PID, waiting for DONE_SIGNAL..."
+              while [ ! -f /var/log/suricata/DONE_SIGNAL ]; do
+                sleep 1
+              done
+              echo "DONE_SIGNAL received, stopping Suricata..."
+              kill $SURICATA_PID
+              wait $SURICATA_PID 2>/dev/null
+              echo "Suricata stopped, container exiting."
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: false
+            runAsUser: 0
+            capabilities:
+              add: ["NET_ADMIN", "NET_RAW"]
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "128Mi"
+            limits:
+              cpu: "300m"
+              memory: "256Mi"
+          volumeMounts:
+            - name: suricata-rules
+              mountPath: /etc/suricata/rules
+            - name: suricata-logs
+              mountPath: /var/log/suricata
+      volumes:
+        - name: audit-logs
+          persistentVolumeClaim:
+            claimName: ecocapture-audit-logs-pvc
+        - name: suricata-rules
+          configMap:
+            name: suricata-rules
+        - name: suricata-logs
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ecocapture-os-service
+  namespace: ecocapture-os
+spec:
+  type: ClusterIP
+  selector:
+    app: ecocapture-os
+    component: dashboard
+  ports:
+    - port: 80
+      targetPort: 8501
+      protocol: TCP
+      name: http
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ecocapture-default-deny
+  namespace: ecocapture-os
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  egress:
+    # Allow DNS resolution (required for any outbound connection to work)
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Allow outbound MQTT traffic to the ThingsBoard container on the kind network
+    - to:
+        - ipBlock:
+            cidr: 172.18.0.100/32
+      ports:
+        - protocol: TCP
+          port: 1883

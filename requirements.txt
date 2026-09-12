@@ -1,0 +1,9 @@
+#streamlit==1.38.0
+streamlit==1.54.0
+pillow==12.3.0
+pyyaml==6.0.2
+paho-mqtt==1.6.1
+pandas==2.2.2
+numpy==1.26.4
+scikit-learn==1.5.2
+python-dateutil==2.9.0

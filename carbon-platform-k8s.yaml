@@ -206,7 +206,7 @@ metadata:
     checkov.io/skip1: CKV_K8S_23=Suricata container requires root for packet capture (NET_ADMIN/NET_RAW)
     checkov.io/skip2: CKV_K8S_14=Floating tag used intentionally for this lab project
     checkov.io/skip3: CKV_K8S_43=Digest pinning out of scope for this practical
-    argocd.argoproj.io/sync-options: Prune=true
+    argocd.argoproj.io/sync-options: Prune=false
 spec:
   backoffLimit: 0
   activeDeadlineSeconds: 120

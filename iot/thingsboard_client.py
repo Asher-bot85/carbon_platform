@@ -11,11 +11,10 @@ block the calling Streamlit thread, regardless of network conditions,
 DNS issues, or a slow/unreachable ThingsBoard broker. Any failures are
 logged asynchronously from the background thread itself.
 
-Also includes publish_security_alert(), which pushes a security_alert
-telemetry point to a dedicated OT-Security-Monitor device. That device's
-alarm rule (security_alert == true) automatically raises a visible
-CRITICAL alarm in ThingsBoard's own native Alarms UI whenever the attack
-simulator successfully triggers and blocks a malicious payload.
+NOTE: THINGSBOARD_HOST is set to the ThingsBoard container's fixed IP on
+the minikube Docker network (192.168.49.100). If running on kind instead
+of minikube, this must be changed back to the kind network's IP
+(typically 172.18.0.100).
 """
 
 import json
@@ -27,7 +26,7 @@ from config.audit import AuditLogger
 
 _logger = AuditLogger(source="ThingsBoardClient")
 
-THINGSBOARD_HOST = "172.18.0.100"   # ThingsBoard container's fixed IP on the kind Docker network
+THINGSBOARD_HOST = "192.168.49.100"   # ThingsBoard container's fixed IP on the minikube Docker network
 THINGSBOARD_PORT = 1883
 
 # Map each simulated sensor_id to its ThingsBoard device access token
@@ -41,8 +40,7 @@ DEVICE_TOKENS = {
 }
 
 # Dedicated device used purely to surface security alarms in ThingsBoard's
-# native Alarms UI. Paste the OT-Security-Monitor device's access token
-# here after creating it (Devices -> OT-Security-Monitor -> Device credentials).
+# native Alarms UI.
 SECURITY_MONITOR_TOKEN = "lPBrRjvTwXWs1ZVV4Zo1"
 
 
